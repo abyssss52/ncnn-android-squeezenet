@@ -25,13 +25,15 @@
 #include "net.h"
 #include "benchmark.h"
 
-#include "squeezenet_v1.1.id.h"
+// #include "squeezenet_v1.1.id.h"
+#include "mobilenetv2.id.h"
+
 
 static ncnn::UnlockedPoolAllocator g_blob_pool_allocator;
 static ncnn::PoolAllocator g_workspace_pool_allocator;
 
-static std::vector<std::string> squeezenet_words;
-static ncnn::Net squeezenet;
+static std::vector<std::string> mobilenet_words;
+static ncnn::Net mobilenet;
 
 static std::vector<std::string> split_string(const std::string& str, const std::string& delimiter)
 {
@@ -55,7 +57,7 @@ extern "C" {
 
 JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved)
 {
-    __android_log_print(ANDROID_LOG_DEBUG, "SqueezeNcnn", "JNI_OnLoad");
+    __android_log_print(ANDROID_LOG_DEBUG, "MobilenetNcnn", "JNI_OnLoad");
 
     ncnn::create_gpu_instance();
 
@@ -64,13 +66,13 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved)
 
 JNIEXPORT void JNI_OnUnload(JavaVM* vm, void* reserved)
 {
-    __android_log_print(ANDROID_LOG_DEBUG, "SqueezeNcnn", "JNI_OnUnload");
+    __android_log_print(ANDROID_LOG_DEBUG, "MobilenetNcnn", "JNI_OnUnload");
 
     ncnn::destroy_gpu_instance();
 }
 
 // public native boolean Init(AssetManager mgr);
-JNIEXPORT jboolean JNICALL Java_com_tencent_squeezencnn_SqueezeNcnn_Init(JNIEnv* env, jobject thiz, jobject assetManager)
+JNIEXPORT jboolean JNICALL Java_com_tencent_squeezencnn_MobilenetNcnn_Init(JNIEnv* env, jobject thiz, jobject assetManager)
 {
     ncnn::Option opt;
     opt.lightmode = true;
@@ -84,24 +86,24 @@ JNIEXPORT jboolean JNICALL Java_com_tencent_squeezencnn_SqueezeNcnn_Init(JNIEnv*
 
     AAssetManager* mgr = AAssetManager_fromJava(env, assetManager);
 
-    squeezenet.opt = opt;
+    mobilenet.opt = opt;
 
     // init param
     {
-        int ret = squeezenet.load_param_bin(mgr, "squeezenet_v1.1.param.bin");
+        int ret = mobilenet.load_param_bin(mgr, "mobilenetv2.param.bin");
         if (ret != 0)
         {
-            __android_log_print(ANDROID_LOG_DEBUG, "SqueezeNcnn", "load_param_bin failed");
+            __android_log_print(ANDROID_LOG_DEBUG, "MobilenetNcnn", "load_param_bin failed");
             return JNI_FALSE;
         }
     }
 
     // init bin
     {
-        int ret = squeezenet.load_model(mgr, "squeezenet_v1.1.bin");
+        int ret = mobilenet.load_model(mgr, "mobilenetv2.bin");
         if (ret != 0)
         {
-            __android_log_print(ANDROID_LOG_DEBUG, "SqueezeNcnn", "load_model failed");
+            __android_log_print(ANDROID_LOG_DEBUG, "MobilenetNcnn", "load_model failed");
             return JNI_FALSE;
         }
     }
@@ -111,7 +113,7 @@ JNIEXPORT jboolean JNICALL Java_com_tencent_squeezencnn_SqueezeNcnn_Init(JNIEnv*
         AAsset* asset = AAssetManager_open(mgr, "synset_words.txt", AASSET_MODE_BUFFER);
         if (!asset)
         {
-            __android_log_print(ANDROID_LOG_DEBUG, "SqueezeNcnn", "open synset_words.txt failed");
+            __android_log_print(ANDROID_LOG_DEBUG, "MobilenetNcnn", "open synset_words.txt failed");
             return JNI_FALSE;
         }
 
@@ -125,18 +127,18 @@ JNIEXPORT jboolean JNICALL Java_com_tencent_squeezencnn_SqueezeNcnn_Init(JNIEnv*
 
         if (ret != len)
         {
-            __android_log_print(ANDROID_LOG_DEBUG, "SqueezeNcnn", "read synset_words.txt failed");
+            __android_log_print(ANDROID_LOG_DEBUG, "MobilenetNcnn", "read synset_words.txt failed");
             return JNI_FALSE;
         }
 
-        squeezenet_words = split_string(words_buffer, "\n");
+        mobilenet_words = split_string(words_buffer, "\n");
     }
 
     return JNI_TRUE;
 }
 
 // public native String Detect(Bitmap bitmap, boolean use_gpu);
-JNIEXPORT jstring JNICALL Java_com_tencent_squeezencnn_SqueezeNcnn_Detect(JNIEnv* env, jobject thiz, jobject bitmap, jboolean use_gpu)
+JNIEXPORT jstring JNICALL Java_com_tencent_squeezencnn_MobilenetNcnn_Detect(JNIEnv* env, jobject thiz, jobject bitmap, jboolean use_gpu)
 {
     if (use_gpu == JNI_TRUE && ncnn::get_gpu_count() == 0)
     {
@@ -149,7 +151,7 @@ JNIEXPORT jstring JNICALL Java_com_tencent_squeezencnn_SqueezeNcnn_Detect(JNIEnv
     AndroidBitmap_getInfo(env, bitmap, &info);
     int width = info.width;
     int height = info.height;
-    if (width != 227 || height != 227)
+    if (width != 224 || height != 224)
         return NULL;
     if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888)
         return NULL;
@@ -157,20 +159,21 @@ JNIEXPORT jstring JNICALL Java_com_tencent_squeezencnn_SqueezeNcnn_Detect(JNIEnv
     // ncnn from bitmap
     ncnn::Mat in = ncnn::Mat::from_android_bitmap(env, bitmap, ncnn::Mat::PIXEL_BGR);
 
-    // squeezenet
+    // mobilenet
     std::vector<float> cls_scores;
     {
-        const float mean_vals[3] = {104.f, 117.f, 123.f};
-        in.substract_mean_normalize(mean_vals, 0);
+        const float mean_vals[3] = {103.f, 117.f, 123.f};
+        const float norm_vals[3]  = {1.0/103.0,1.0/117.0,1.0/123.0};
+        in.substract_mean_normalize(mean_vals, norm_vals);
 
-        ncnn::Extractor ex = squeezenet.create_extractor();
+        ncnn::Extractor ex = mobilenet.create_extractor();
 
         ex.set_vulkan_compute(use_gpu);
 
-        ex.input(squeezenet_v1_1_param_id::BLOB_data, in);
+        ex.input(mobilenetv2_param_id::BLOB_input_1, in);
 
         ncnn::Mat out;
-        ex.extract(squeezenet_v1_1_param_id::BLOB_prob, out);
+        ex.extract(mobilenetv2_param_id::BLOB_466, out);
 
         cls_scores.resize(out.w);
         for (int j=0; j<out.w; j++)
@@ -185,7 +188,7 @@ JNIEXPORT jstring JNICALL Java_com_tencent_squeezencnn_SqueezeNcnn_Detect(JNIEnv
     for (size_t i=0; i<cls_scores.size(); i++)
     {
         float s = cls_scores[i];
-//         __android_log_print(ANDROID_LOG_DEBUG, "SqueezeNcnn", "%d %f", i, s);
+//         __android_log_print(ANDROID_LOG_DEBUG, "MobilenetNcnn", "%d %f", i, s);
         if (s > max_score)
         {
             top_class = i;
@@ -193,16 +196,20 @@ JNIEXPORT jstring JNICALL Java_com_tencent_squeezencnn_SqueezeNcnn_Detect(JNIEnv
         }
     }
 
-    const std::string& word = squeezenet_words[top_class];
+    const std::string& word = mobilenet_words[top_class];
     char tmp[32];
-    sprintf(tmp, "%.3f", max_score);
-    std::string result_str = std::string(word.c_str() + 10) + " = " + tmp;
+    char elasped[32];
 
+    sprintf(tmp, "%.3f", max_score);
+    sprintf(elasped, "%.2f", (ncnn::get_current_time() - start_time));
+
+//    std::string result_str = std::string(word.c_str() + 10) + " = " + tmp;
+    std::string result_str = std::string(word.c_str() + 10) + elasped;
     // +10 to skip leading n03179701
     jstring result = env->NewStringUTF(result_str.c_str());
 
-    double elasped = ncnn::get_current_time() - start_time;
-    __android_log_print(ANDROID_LOG_DEBUG, "SqueezeNcnn", "%.2fms   detect", elasped);
+//    double elasped = ncnn::get_current_time() - start_time;
+//    __android_log_print(ANDROID_LOG_DEBUG, "MobilenetNcnn", "%.2fms   detect", elasped);
 
     return result;
 }

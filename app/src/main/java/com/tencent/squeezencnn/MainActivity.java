@@ -36,7 +36,7 @@ public class MainActivity extends Activity
     private ImageView imageView;
     private Bitmap yourSelectedImage = null;
 
-    private SqueezeNcnn squeezencnn = new SqueezeNcnn();
+    private MobilenetNcnn mobilenetncnn = new MobilenetNcnn();
 
     /** Called when the activity is first created. */
     @Override
@@ -45,10 +45,10 @@ public class MainActivity extends Activity
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
 
-        boolean ret_init = squeezencnn.Init(getAssets());
+        boolean ret_init = mobilenetncnn.Init(getAssets());
         if (!ret_init)
         {
-            Log.e("MainActivity", "squeezencnn Init failed");
+            Log.e("MainActivity", "mobilenetncnn Init failed");
         }
 
         infoResult = (TextView) findViewById(R.id.infoResult);
@@ -71,7 +71,7 @@ public class MainActivity extends Activity
                 if (yourSelectedImage == null)
                     return;
 
-                String result = squeezencnn.Detect(yourSelectedImage, false);
+                String result = mobilenetncnn.Detect(yourSelectedImage, false);
 
                 if (result == null)
                 {
@@ -91,7 +91,7 @@ public class MainActivity extends Activity
                 if (yourSelectedImage == null)
                     return;
 
-                String result = squeezencnn.Detect(yourSelectedImage, true);
+                String result = mobilenetncnn.Detect(yourSelectedImage, true);
 
                 if (result == null)
                 {
@@ -120,8 +120,8 @@ public class MainActivity extends Activity
 
                     Bitmap rgba = bitmap.copy(Bitmap.Config.ARGB_8888, true);
 
-                    // resize to 227x227
-                    yourSelectedImage = Bitmap.createScaledBitmap(rgba, 227, 227, false);
+                    // resize to 224x224
+                    yourSelectedImage = Bitmap.createScaledBitmap(rgba, 224, 224, false);
 
                     rgba.recycle();
 
